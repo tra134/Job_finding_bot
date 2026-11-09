@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the Da Nang intern and contest finder
+
+[Timer]
+OnStartupSec=1min
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target

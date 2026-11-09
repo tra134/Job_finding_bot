@@ -1,0 +1,10 @@
+[Unit]
+Description=Da Nang intern and contest finder
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@PROJECT_DIR@
+ExecStart=@PROJECT_DIR@/.venv/bin/python -m finder
+TimeoutStartSec=15min

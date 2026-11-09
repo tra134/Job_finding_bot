@@ -1,9 +1,12 @@
 import argparse
+import socket
 import sys
-from datetime import date
+import time
+from datetime import date, datetime, timezone
+from pathlib import Path
 
-from . import contest_digest, contest_filters, digest, filters
-from .http_client import BlockedError, FetchError, HttpClient
+from . import contest_digest, contest_filters, digest, filters, state as st, telegram
+from .http_client import BlockedError, FetchError, HttpClient, RobotsDisallowed
 from .sources import (careerlink, careerviet, devpost, itviec, mlh, topcv, vietnamworks)
 
 JOB_SOURCES = {
@@ -14,11 +17,17 @@ JOB_SOURCES = {
 CONTEST_SOURCES = {"devpost": devpost, "mlh": mlh}
 APPROVED_HOSTS = {"mlh.io", "www.mlh.com", "mlh.com", "devpost.com"}
 
+ROOT = Path(__file__).resolve().parent.parent
+CHAT_KEYS = {"jobs": "TELEGRAM_JOBS_CHAT_ID", "contests": "TELEGRAM_CONTESTS_CHAT_ID"}
+NETWORK_WAIT, NETWORK_STEP = 300, 15
+
 
 def run_source(name, module, client):
-    """Returns (jobs, status, detail). Status: ok | empty | blocked | error."""
+    """Returns (jobs, status, detail). Status: ok | empty | blocked | skipped | error."""
     try:
         jobs = module.fetch(client)
+    except RobotsDisallowed as e:
+        return [], "skipped", str(e)
     except BlockedError as e:
         return [], "blocked", str(e)
     except FetchError as e:
@@ -38,25 +47,174 @@ def collect_jobs(names, client, registry=None):
     return all_jobs, report
 
 
-def main(argv=None):
-    p = argparse.ArgumentParser(prog="finder")
-    p.add_argument("--dry-run", action="store_true", help="print only; send nothing")
-    p.add_argument("--channel", choices=["jobs", "contests"], default="jobs")
-    p.add_argument("--sources", help="comma-separated source names")
-    args = p.parse_args(argv)
+def load_env(path):
+    out = {}
+    try:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return out
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        v = v.strip()
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+            v = v[1:-1]
+        out[k.strip()] = v
+    return out
 
-    if not args.dry_run:
-        print("Sending is not implemented yet (Milestone 5). Use --dry-run.", file=sys.stderr)
-        return 2
-    registry = CONTEST_SOURCES if args.channel == "contests" else JOB_SOURCES
-    names = list(registry)
-    if args.sources:
-        names = [s.strip() for s in args.sources.split(",")]
-        bad = [n for n in names if n not in registry]
-        if bad:
-            print(f"Unknown source(s): {', '.join(bad)}. Known: {', '.join(registry)}",
+
+def telegram_reachable():
+    try:
+        socket.create_connection(("api.telegram.org", 443), timeout=5).close()
+        return True
+    except OSError:
+        return False
+
+
+def wait_for_network(check, sleep, total=NETWORK_WAIT, step=NETWORK_STEP):
+    waited = 0
+    while not check():
+        if waited >= total:
+            return False
+        sleep(step)
+        waited += step
+    return True
+
+
+def _kept(channel, items, today):
+    """Returns (kept list, groups-or-None)."""
+    if channel == "jobs":
+        groups = filters.select(items, today)
+        return [j for t in (1, 2, 3) for j in groups[t]], groups
+    return contest_filters.select(items, today), None
+
+
+def run_channel(channel, names, client, state, sender, chat_id, today, seed):
+    """Returns (has_data, send_ok)."""
+    registry = JOB_SOURCES if channel == "jobs" else CONTEST_SOURCES
+    items, report = collect_jobs(names, client, registry)
+    kept, groups = _kept(channel, items, today)
+    send_ok = True
+    has_data = any(s in ("ok", "empty") for _, s, _ in report)
+    if seed:
+        state.mark_seen(channel, [st.item_key(i) for i in kept])
+        state.mark_initialized(channel)
+    elif not state.is_initialized(channel):
+        try:
+            sender.send(chat_id, telegram.first_run_summary(channel, len(kept)))
+            state.mark_seen(channel, [st.item_key(i) for i in kept])
+            state.mark_initialized(channel)
+        except telegram.TelegramError as e:
+            print(f"[{channel}] Telegram send failed: {e}", file=sys.stderr)
+            send_ok = False
+    else:
+        new = [i for i in kept if not state.is_seen(channel, st.item_key(i))]
+        if new:
+            if channel == "jobs":
+                ids = {id(i) for i in new}
+                blocks = telegram.render_jobs(
+                    {t: [j for j in groups[t] if id(j) in ids] for t in groups}, st.item_key)
+            else:
+                blocks = telegram.render_contests(new, st.item_key)
+            try:
+                telegram.send_digest(sender, chat_id, telegram.split_blocks(blocks),
+                                     lambda keys: state.mark_seen(channel, keys))
+            except telegram.TelegramError as e:
+                print(f"[{channel}] Telegram send failed: {e}", file=sys.stderr)
+                send_ok = False
+    for n, status, detail in report:
+        warn = state.update_source(n, status)
+        if seed or not warn:
+            continue
+        try:
+            sender.send(chat_id, telegram.source_warning(n, status, detail))
+            state.mark_warned(n)
+        except telegram.TelegramError as e:
+            print(f"[{channel}] Telegram send failed: {e}", file=sys.stderr)
+            send_ok = False
+    return has_data, send_ok
+
+
+def real_run(args, root, sender_factory, sleep, net_check, now, client_factory):
+    channels = [args.channel] if args.channel else ["jobs", "contests"]
+    chat_ids, sender = {}, None
+    if not args.seed:
+        env = load_env(root / ".env")
+        need = ["TELEGRAM_BOT_TOKEN"] + [CHAT_KEYS[c] for c in channels]
+        missing = [k for k in need if not env.get(k)]
+        if missing:
+            print(f"Missing configuration in .env: {', '.join(missing)}. Nothing was sent.",
                   file=sys.stderr)
             return 2
+        chat_ids = {c: env[CHAT_KEYS[c]] for c in channels}
+        sender = sender_factory(env["TELEGRAM_BOT_TOKEN"])
+    try:
+        with st.RunLock(root / "state" / "finder.lock"):
+            state = st.State(root / "state" / "state.json")
+            if not (args.force or args.seed) and not state.scan_due(now(), 3):
+                print("Last scan was under 3 hours ago; skipping (use --force).")
+                return 0
+            if not wait_for_network(net_check, sleep):
+                print("Network unavailable; giving up without updating the last scan.")
+                return 0
+            client = client_factory()
+            today, rc = date.today(), 0
+            complete = not args.sources and not args.channel
+            for c in channels:
+                registry = JOB_SOURCES if c == "jobs" else CONTEST_SOURCES
+                names = [n for n in (args.names or registry) if n in registry]
+                if not names:
+                    continue
+                has_data, send_ok = run_channel(c, names, client, state, sender,
+                                                chat_ids.get(c), today, args.seed)
+                complete = complete and has_data and send_ok
+                if not send_ok:
+                    rc = 1
+            if complete and rc == 0:
+                state.record_scan(now())
+            return rc
+    except st.LockHeld:
+        print("Another run is in progress; exiting.")
+        return 0
+    except st.StateError as e:
+        print(f"State file problem: {e}", file=sys.stderr)
+        return 1
+
+
+def main(argv=None, *, root=None, sender_factory=telegram.TelegramSender, sleep=time.sleep,
+         net_check=telegram_reachable, now=lambda: datetime.now(timezone.utc),
+         client_factory=lambda: HttpClient(approved_hosts=APPROVED_HOSTS)):
+    p = argparse.ArgumentParser(prog="finder")
+    p.add_argument("--dry-run", action="store_true", help="print only; send nothing")
+    p.add_argument("--channel", choices=["jobs", "contests"], default=None)
+    p.add_argument("--sources", help="comma-separated source names")
+    p.add_argument("--force", action="store_true", help="ignore the 3-hour guard")
+    p.add_argument("--seed", action="store_true", help="mark everything seen; send nothing")
+    args = p.parse_args(argv)
+    args.names = None
+    if args.sources:
+        args.names = [s.strip() for s in args.sources.split(",")]
+    if args.names and not args.dry_run:
+        known = {**JOB_SOURCES, **CONTEST_SOURCES}
+        bad = [n for n in args.names if n not in known]
+        if bad:
+            print(f"Unknown source(s): {', '.join(bad)}. Known: {', '.join(known)}",
+                  file=sys.stderr)
+            return 2
+
+    if not args.dry_run:
+        return real_run(args, Path(root or ROOT), sender_factory, sleep, net_check, now,
+                        client_factory)
+    args.channel = args.channel or "jobs"
+    registry = CONTEST_SOURCES if args.channel == "contests" else JOB_SOURCES
+    names = args.names or list(registry)
+    bad = [n for n in names if n not in registry]
+    if bad:
+        print(f"Unknown source(s): {', '.join(bad)}. Known: {', '.join(registry)}",
+              file=sys.stderr)
+        return 2
 
     client = HttpClient(approved_hosts=APPROVED_HOSTS)
     if args.channel == "contests":
