@@ -20,3 +20,19 @@ class Job:
     def __post_init__(self):
         if not self.sources:
             self.sources = [self.source]
+
+
+@dataclass
+class Contest:
+    name: str
+    organiser: str
+    mode: str                # "da nang" | "online" | "other" (in person elsewhere)
+    location: str
+    url: str
+    source: str
+    topic: str = ""
+    reg_deadline: Optional[date] = None
+    event_date: str = ""
+    ended: Optional[date] = None      # last day, used to drop finished events
+    vietnam_open: bool = False        # text mentions Vietnam explicitly
+    closed: bool = False

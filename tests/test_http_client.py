@@ -183,3 +183,46 @@ def test_non_http_url_rejected():
     client, _, _ = make({})
     with pytest.raises(FetchError):
         client.get("file:///etc/passwd")
+
+
+def redirect(to, status=301):
+    r = FakeResp(status)
+    r.headers["Location"] = to
+    return r
+
+
+def test_redirect_to_approved_host_rechecks_robots():
+    clock = Clock()
+    sess = FakeSession({
+        "https://a.test/robots.txt": FakeResp(404),
+        "https://a.test/x": redirect("https://b.test/y"),
+        "https://b.test/robots.txt": FakeResp(200, "User-agent: *\nDisallow: /y\n"),
+        "https://b.test/y": FakeResp(200, "secret"),
+    })
+    client = HttpClient(sess, sleep=clock.sleep, clock=clock.time, approved_hosts={"b.test"})
+    with pytest.raises(RobotsDisallowed):
+        client.get("https://a.test/x")
+    assert ("GET", "https://b.test/y") not in sess.calls
+
+
+def test_redirect_to_unapproved_host_refused():
+    client, sess, _ = make({ROBOTS: FakeResp(404), "https://a.test/x": redirect("https://evil.test/")})
+    with pytest.raises(FetchError):
+        client.get("https://a.test/x")
+    assert not any("evil.test" in u for _, u in sess.calls)
+
+
+def test_redirect_followed_when_approved():
+    clock = Clock()
+    sess = FakeSession({
+        "https://a.test/robots.txt": FakeResp(404), "https://b.test/robots.txt": FakeResp(404),
+        "https://a.test/x": redirect("https://b.test/y"), "https://b.test/y": FakeResp(200, "ok"),
+    })
+    client = HttpClient(sess, sleep=clock.sleep, clock=clock.time, approved_hosts={"b.test"})
+    assert client.get("https://a.test/x").text == "ok"
+
+
+def test_redirect_loop_stops():
+    client, _, _ = make({ROBOTS: FakeResp(404), "https://a.test/x": redirect("https://a.test/x")})
+    with pytest.raises(FetchError):
+        client.get("https://a.test/x")

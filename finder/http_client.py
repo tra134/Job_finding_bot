@@ -1,7 +1,7 @@
 """Polite HTTP client: robots.txt, throttling, block detection, single retry."""
 import time
 import urllib.robotparser
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import requests
 
@@ -10,6 +10,8 @@ MIN_INTERVAL = 2.0
 BLOCK_STATUSES = {401, 403, 429, 451}
 CAPTCHA_MARKERS = ("captcha", "g-recaptcha", "cf-challenge", "hcaptcha")
 TIMEOUT = 20
+MAX_REDIRECTS = 5
+REDIRECTS = {301, 302, 303, 307, 308}
 
 
 class FetchError(Exception):
@@ -25,7 +27,10 @@ class BlockedError(FetchError):
 
 
 class HttpClient:
-    def __init__(self, session=None, sleep=time.sleep, clock=time.monotonic):
+    def __init__(self, session=None, sleep=time.sleep, clock=time.monotonic,
+                 approved_hosts=None):
+        # Hosts a redirect may lead to besides the requested one (None = same host only).
+        self.approved_hosts = set(approved_hosts or ())
         self.session = session or requests.Session()
         self.session.headers.update({"User-Agent": USER_AGENT})
         self._sleep = sleep
@@ -102,15 +107,12 @@ class HttpClient:
         return any(m in head for m in CAPTCHA_MARKERS)
 
     # -- public ------------------------------------------------------------
-    def request(self, method, url, **kwargs):
-        scheme, host = self._origin(url)
-        if host in self.blocked:
-            raise BlockedError(f"{host} blocked earlier this run: {self.blocked[host]}")
-        host, crawl_delay = self._check_robots(url)
+    def _send(self, method, url, host, crawl_delay, kwargs):
         for attempt in (0, 1):
             self._throttle(host, crawl_delay)
             try:
-                resp = self.session.request(method, url, timeout=TIMEOUT, **kwargs)
+                resp = self.session.request(method, url, timeout=TIMEOUT,
+                                            allow_redirects=False, **kwargs)
             except requests.Timeout:
                 if attempt == 0:
                     continue
@@ -119,7 +121,26 @@ class HttpClient:
                 raise FetchError(f"request failed for {host}: {type(exc).__name__}")
             if resp.status_code >= 500 and attempt == 0:
                 continue
+            return resp
+
+    def request(self, method, url, **kwargs):
+        origin_host = self._origin(url)[1]
+        for _hop in range(MAX_REDIRECTS + 1):
+            scheme, host = self._origin(url)
+            if host in self.blocked:
+                raise BlockedError(f"{host} blocked earlier this run: {self.blocked[host]}")
+            if host != origin_host and host not in self.approved_hosts:
+                raise FetchError(f"redirect to unapproved host {host}")
+            host, crawl_delay = self._check_robots(url)
+            resp = self._send(method, url, host, crawl_delay, kwargs)
+            if resp.status_code in REDIRECTS and resp.headers.get("Location"):
+                url = urljoin(url, resp.headers["Location"])
+                if resp.status_code == 303:
+                    method, kwargs = "GET", {}
+                continue
             break
+        else:
+            raise FetchError("too many redirects")
         if resp.status_code in BLOCK_STATUSES:
             self.blocked[host] = f"HTTP {resp.status_code}"
             raise BlockedError(f"{host} returned HTTP {resp.status_code}")
