@@ -55,10 +55,11 @@ def env(tmp_path, monkeypatch):
                            state_path=tmp_path / "state" / "state.json")
 
 
-def run(env, *args, sender=None, net=lambda: True, sleep=lambda s: None):
+def run(env, *args, sender=None, net=lambda: True, sleep=lambda s: None, booted=None):
     sender = sender or FakeSender()
     rc = fm.main(list(args), root=env.root, sender_factory=lambda token: sender, sleep=sleep,
-                 net_check=net, now=lambda: NOW, client_factory=object)
+                 net_check=net, now=lambda: NOW, client_factory=object,
+                 booted_at=lambda: booted)
     return rc, sender
 
 
@@ -339,3 +340,22 @@ def test_dry_run_respects_job_areas(env, capsys):
     out = capsys.readouterr().out
     assert "Python Intern 001" in out and "Python Intern 002" not in out
     assert "Remote" not in out and "other cities" not in out
+
+
+def test_first_run_after_boot_ignores_three_hour_guard(env):
+    init(env, "jobs", "contests")
+    state(env).record_scan(NOW - timedelta(hours=1))  # scanned before the laptop was shut down
+    run(env, booted=NOW - timedelta(minutes=2))
+    assert env.jobs.calls == 1 and state(env).last_scan() == NOW
+
+
+def test_guard_applies_again_after_scan_since_boot(env):
+    init(env, "jobs", "contests")
+    state(env).record_scan(NOW - timedelta(hours=1))  # already scanned since this boot
+    run(env, booted=NOW - timedelta(hours=2))
+    assert env.jobs.calls == 0
+
+
+def test_boot_time_reads_proc_stat():
+    b = fm.boot_time()
+    assert b is None or (b.tzinfo is not None and b <= datetime.now(timezone.utc))

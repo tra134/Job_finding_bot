@@ -8,7 +8,7 @@ A small bot for a Linux laptop that finds new **software internships** and **tec
 - **Filters by location.** You choose which areas to receive: Da Nang, remote, and/or other cities (Hanoi, HCMC…).
 - **Finds contests.** It collects upcoming hackathons and tech competitions on topics like AI, data, cloud, security and fintech, held online or in Da Nang. Events whose deadline has passed are skipped.
 - **Sends only what's new.** It remembers everything it has already sent. Each digest lists only new items, with a title, company, location, salary and link. If nothing is new, it sends nothing.
-- **Runs by itself.** A background timer checks about every 3 hours while the laptop is on, and catches up after a reboot or sleep.
+- **Runs by itself.** It checks about a minute after you turn the laptop on and log in, then about every 3 hours while it stays on.
 - **Warns you once if a site stops working**, for example if the site blocks the bot or its page layout changes.
 - **Scrapes politely.** It respects `robots.txt`, waits between requests, and never logs in, uses proxies or gets around blocks.
 

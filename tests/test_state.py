@@ -140,3 +140,12 @@ def test_runlock(tmp_path):
                 pass
     with RunLock(p):
         pass
+
+
+def test_scan_due_after_reboot(tmp_path):
+    s = State(tmp_path / "state.json")
+    now = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
+    s.record_scan(now - timedelta(hours=1))
+    assert s.scan_due(now, booted_at=now - timedelta(minutes=5))      # last scan before boot
+    assert not s.scan_due(now, booted_at=now - timedelta(hours=2))    # already scanned this boot
+    assert not s.scan_due(now, booted_at=None)

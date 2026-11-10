@@ -115,9 +115,12 @@ class State:
         self.data["last_scan"] = when.astimezone(timezone.utc).isoformat()
         self._save()
 
-    def scan_due(self, now, min_hours=3):
+    def scan_due(self, now, min_hours=3, booted_at=None):
+        """Due if never scanned, not yet scanned since this boot, or min_hours have passed."""
         last = self.last_scan()
-        return last is None or now - last >= timedelta(hours=min_hours)
+        if last is None or (booted_at is not None and last < booted_at):
+            return True
+        return now - last >= timedelta(hours=min_hours)
 
     def update_source(self, name, status):
         if status == "skipped":

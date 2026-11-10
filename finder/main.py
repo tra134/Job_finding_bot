@@ -73,6 +73,17 @@ def telegram_reachable():
         return False
 
 
+def boot_time():
+    """When this machine last booted (UTC), from /proc/stat; None if unavailable."""
+    try:
+        for line in Path("/proc/stat").read_text().splitlines():
+            if line.startswith("btime "):
+                return datetime.fromtimestamp(int(line.split()[1]), timezone.utc)
+    except (OSError, ValueError):
+        pass
+    return None
+
+
 def wait_for_network(check, sleep, total=NETWORK_WAIT, step=NETWORK_STEP):
     waited = 0
     while not check():
@@ -143,7 +154,7 @@ def run_channel(channel, names, client, state, sender, chat_id, today, seed, tie
     return has_data, send_ok
 
 
-def real_run(args, root, sender_factory, sleep, net_check, now, client_factory):
+def real_run(args, root, sender_factory, sleep, net_check, now, client_factory, booted_at):
     channels = [args.channel] if args.channel else ["jobs", "contests"]
     chat_ids, sender = {}, None
     env = load_env(root / ".env")
@@ -164,8 +175,8 @@ def real_run(args, root, sender_factory, sleep, net_check, now, client_factory):
     try:
         with st.RunLock(root / "state" / "finder.lock"):
             state = st.State(root / "state" / "state.json")
-            if not (args.force or args.seed) and not state.scan_due(now(), 3):
-                print("Last scan was under 3 hours ago; skipping (use --force).")
+            if not (args.force or args.seed) and not state.scan_due(now(), 3, booted_at()):
+                print("Already scanned since boot and under 3 hours ago; skipping (use --force).")
                 return 0
             if not wait_for_network(net_check, sleep):
                 print("Network unavailable; giving up without updating the last scan.")
@@ -196,7 +207,8 @@ def real_run(args, root, sender_factory, sleep, net_check, now, client_factory):
 
 def main(argv=None, *, root=None, sender_factory=telegram.TelegramSender, sleep=time.sleep,
          net_check=telegram_reachable, now=lambda: datetime.now(timezone.utc),
-         client_factory=lambda: HttpClient(approved_hosts=APPROVED_HOSTS)):
+         client_factory=lambda: HttpClient(approved_hosts=APPROVED_HOSTS),
+         booted_at=boot_time):
     p = argparse.ArgumentParser(prog="finder")
     p.add_argument("--dry-run", action="store_true", help="print only; send nothing")
     p.add_argument("--channel", choices=["jobs", "contests"], default=None)
@@ -217,7 +229,7 @@ def main(argv=None, *, root=None, sender_factory=telegram.TelegramSender, sleep=
 
     if not args.dry_run:
         return real_run(args, Path(root or ROOT), sender_factory, sleep, net_check, now,
-                        client_factory)
+                        client_factory, booted_at)
     args.channel = args.channel or "jobs"
     registry = CONTEST_SOURCES if args.channel == "contests" else JOB_SOURCES
     names = args.names or list(registry)
