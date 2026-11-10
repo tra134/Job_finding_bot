@@ -298,3 +298,44 @@ def test_load_env_parsing(tmp_path):
     p.write_text("# c\nA=1\nB = \"two\"\n\nbad line\nC='3'\n")
     assert fm.load_env(p) == {"A": "1", "B": "two", "C": "3"}
     assert fm.load_env(tmp_path / "none") == {}
+
+
+def hcm_job(i):
+    return Job(title=f"Python Intern {i:03d}", company=f"Co{i:03d}", location="Ho Chi Minh",
+               url=f"https://x.example/{i}", source="fake")
+
+
+def test_job_areas_danang_only_skips_other_cities(env):
+    (env.root / ".env").write_text(ENV + "JOB_AREAS=danang\n")
+    env.jobs.items = [job(1), hcm_job(2)]
+    init(env, "jobs", "contests")
+    state(env).mark_seen("contests", [st.item_key(contest(1))])
+    rc, sender = run(env)
+    assert rc == 0 and len(sender.sent) == 1
+    assert "Python Intern 001" in sender.sent[0][1]
+    assert "Python Intern 002" not in sender.sent[0][1] and "other cities" not in sender.sent[0][1]
+    assert not state(env).is_seen("jobs", st.item_key(hcm_job(2)))
+
+
+def test_job_areas_unset_keeps_all(env):
+    env.jobs.items = [job(1), hcm_job(2)]
+    init(env, "jobs", "contests")
+    state(env).mark_seen("contests", [st.item_key(contest(1))])
+    rc, sender = run(env)
+    assert rc == 0 and "Python Intern 002" in sender.sent[0][1]
+
+
+def test_job_areas_invalid_exits_2(env, capsys):
+    (env.root / ".env").write_text(ENV + "JOB_AREAS=hanoi\n")
+    rc, sender = run(env)
+    assert rc == 2 and sender.sent == [] and env.jobs.calls == 0
+    assert "hanoi" in capsys.readouterr().err
+
+
+def test_dry_run_respects_job_areas(env, capsys):
+    (env.root / ".env").write_text("JOB_AREAS=danang\n")
+    env.jobs.items = [job(1), hcm_job(2)]
+    assert run(env, "--dry-run")[0] == 0
+    out = capsys.readouterr().out
+    assert "Python Intern 001" in out and "Python Intern 002" not in out
+    assert "Remote" not in out and "other cities" not in out

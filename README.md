@@ -26,6 +26,8 @@ Requires Python 3.13 and `systemd --user`.
    chmod 600 .env
    ```
 
+   `JOB_AREAS` chooses which job locations are posted: any of `danang`, `remote`, `other` (Hanoi, HCMC and other cities), comma-separated, e.g. `JOB_AREAS=danang,remote`. If unset, all three are posted. Jobs in areas that are turned off are not marked as seen, so turning an area on later posts its current listings as new.
+
    `.env`, `state/` and `output/` are git-ignored. Never paste the token into chat or commit it.
 
 6. Preview without sending anything:
@@ -74,13 +76,13 @@ Requires Python 3.13 and `systemd --user`.
 - `--force`: ignore the 3-hour guard.
 - `--seed`: record current items as seen and send nothing.
 
-Exit codes: 0 normal (including "not due", "already running", "network down"), 1 Telegram failure, 2 missing configuration.
+Exit codes: 0 normal (including "not due", "already running", "network down"), 1 Telegram failure or unreadable state file, 2 missing configuration or unknown source name.
 
 ## Sources
 
-Jobs: VietnamWorks, TopCV, ITviec, CareerViet, CareerLink. TopDev is pending (its parser is not finished).
+Jobs: VietnamWorks, TopCV, ITviec, CareerViet, CareerLink. A TopDev parser exists but is not enabled, because the page it reads is not filtered to internships.
 
-Contests: Devpost and MLH. Other sites are pending review.
+Contests: Devpost and MLH. Kaggle, Luma, Google Developer Groups and YBOX were checked and are not used.
 
 Requests use a fixed User-Agent, honour `robots.txt` and wait at least 2 seconds between requests to a host. A source is dropped for the rest of the run on HTTP 401, 403, 429 or 451 or a CAPTCHA, and the block is never worked around.
 

@@ -28,7 +28,9 @@ def render_job(j):
 def render_jobs(groups):
     out = []
     for t in (1, 2, 3):
-        jobs = groups.get(t, [])
+        if t not in groups:  # area turned off by JOB_AREAS
+            continue
+        jobs = groups[t]
         out.append(f"{TIER_TITLES[t]} ({len(jobs)})")
         shown = jobs[:OTHER_CAP] if t == 3 else jobs
         out += ["  - " + render_job(j) for j in shown]
