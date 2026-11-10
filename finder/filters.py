@@ -91,6 +91,21 @@ def tier(job: Job):
     return 3
 
 
+AREAS = {"danang": 1, "remote": 2, "other": 3}
+
+
+def parse_areas(value):
+    """JOB_AREAS from .env, e.g. "danang,remote" -> {1, 2}. Empty/unset -> all tiers."""
+    names = [n.strip().lower() for n in (value or "").split(",") if n.strip()]
+    if not names:
+        return set(AREAS.values())
+    bad = [n for n in names if n not in AREAS]
+    if bad:
+        raise ValueError(f"Unknown JOB_AREAS value(s): {', '.join(bad)}. "
+                         f"Use any of: {', '.join(AREAS)}")
+    return {AREAS[n] for n in names}
+
+
 def is_multi_city(job: Job) -> bool:
     loc = fold(job.location)
     return bool(DANANG.search(loc) and (OTHER_CITIES.search(loc) or re.search(r"[,&;]| - ", loc)))

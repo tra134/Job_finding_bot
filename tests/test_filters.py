@@ -88,3 +88,13 @@ def test_select_dedups_across_sources_and_groups():
     g = filters.select(jobs, TODAY)
     assert len(g[1]) == 1 and g[1][0].sources == ["A", "B"]
     assert len(g[2]) == 1 and len(g[3]) == 1
+
+
+def test_parse_areas():
+    assert filters.parse_areas(None) == {1, 2, 3}
+    assert filters.parse_areas("") == {1, 2, 3}
+    assert filters.parse_areas("danang") == {1}
+    assert filters.parse_areas(" DaNang , remote ") == {1, 2}
+    assert filters.parse_areas("danang,remote,other") == {1, 2, 3}
+    with pytest.raises(ValueError, match="hanoi"):
+        filters.parse_areas("danang,hanoi")

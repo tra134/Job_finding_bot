@@ -83,19 +83,25 @@ def wait_for_network(check, sleep, total=NETWORK_WAIT, step=NETWORK_STEP):
     return True
 
 
-def _kept(channel, items, today):
+def _job_groups(items, today, tiers):
+    """filters.select, keeping only the location tiers chosen by JOB_AREAS."""
+    groups = filters.select(items, today)
+    return {t: groups[t] for t in (1, 2, 3) if t in tiers}
+
+
+def _kept(channel, items, today, tiers):
     """Returns (kept list, groups-or-None)."""
     if channel == "jobs":
-        groups = filters.select(items, today)
-        return [j for t in (1, 2, 3) for j in groups[t]], groups
+        groups = _job_groups(items, today, tiers)
+        return [j for t in groups for j in groups[t]], groups
     return contest_filters.select(items, today), None
 
 
-def run_channel(channel, names, client, state, sender, chat_id, today, seed):
+def run_channel(channel, names, client, state, sender, chat_id, today, seed, tiers=(1, 2, 3)):
     """Returns (has_data, send_ok)."""
     registry = JOB_SOURCES if channel == "jobs" else CONTEST_SOURCES
     items, report = collect_jobs(names, client, registry)
-    kept, groups = _kept(channel, items, today)
+    kept, groups = _kept(channel, items, today, tiers)
     send_ok = True
     has_data = any(s in ("ok", "empty") for _, s, _ in report)
     if seed:
@@ -140,8 +146,13 @@ def run_channel(channel, names, client, state, sender, chat_id, today, seed):
 def real_run(args, root, sender_factory, sleep, net_check, now, client_factory):
     channels = [args.channel] if args.channel else ["jobs", "contests"]
     chat_ids, sender = {}, None
+    env = load_env(root / ".env")
+    try:
+        tiers = filters.parse_areas(env.get("JOB_AREAS"))
+    except ValueError as e:
+        print(f"{e}. Nothing was sent.", file=sys.stderr)
+        return 2
     if not args.seed:
-        env = load_env(root / ".env")
         need = ["TELEGRAM_BOT_TOKEN"] + [CHAT_KEYS[c] for c in channels]
         missing = [k for k in need if not env.get(k)]
         if missing:
@@ -168,7 +179,7 @@ def real_run(args, root, sender_factory, sleep, net_check, now, client_factory):
                 if not names:
                     continue
                 has_data, send_ok = run_channel(c, names, client, state, sender,
-                                                chat_ids.get(c), today, args.seed)
+                                                chat_ids.get(c), today, args.seed, tiers)
                 complete = complete and has_data and send_ok
                 if not send_ok:
                     rc = 1
@@ -226,8 +237,13 @@ def main(argv=None, *, root=None, sender_factory=telegram.TelegramSender, sleep=
             print(f"  {n}: {status} ({detail})")
         print(f"Raw events: {len(items)}; kept after filters: {len(chosen)}")
         return 0
+    try:
+        tiers = filters.parse_areas(load_env(Path(root or ROOT) / ".env").get("JOB_AREAS"))
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 2
     jobs, report = collect_jobs(names, client)
-    groups = filters.select(jobs, date.today())
+    groups = _job_groups(jobs, date.today(), tiers)
     print(digest.render_jobs(groups))
     print("\nSource report:")
     for n, status, detail in report:
