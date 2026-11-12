@@ -5,10 +5,11 @@ A small bot for a Linux laptop that finds new **software internships** and **tec
 ## What it does
 
 - **Finds internships.** It checks several public Vietnamese job sites and keeps only technical intern/trainee roles such as developer, QA, data, AI and DevOps. Sales, HR, senior and labour-export posts are dropped.
+- **Finds IT jobs that use Japanese.** It also keeps bridge roles (BrSE, IT comtor) and IT jobs that ask for Japanese (JLPT N1–N5) or fluent English, and tags each job with the language, e.g. `🗣 Japanese N2`. Senior/leader roles and non-IT language jobs are skipped.
 - **Filters by location.** You choose which areas to receive: Da Nang, remote, and/or other cities (Hanoi, HCMC…).
 - **Finds contests in Vietnam.** It collects upcoming hackathons and tech competitions from Luma, Devpost and MLH. Da Nang events come first and are kept on any topic. Hanoi and Ho Chi Minh City events, and online events aimed at Vietnam, are kept only if they match a topic such as AI, fintech, data, cloud or security. Worldwide online contests and events whose deadline has passed are skipped.
 - **Sends only what's new.** It remembers everything it has already sent. Each digest lists only new items, with a title, company, location, salary and link. If nothing is new, it sends nothing.
-- **Runs by itself.** It checks about a minute after you turn the laptop on and log in, then about every 3 hours while it stays on.
+- **Runs by itself.** It scans shortly after you boot or log in, within about 15 minutes of opening the lid (waking from sleep, if the last scan is 30+ minutes old), and about every 3 hours while the laptop stays on.
 - **Warns you once if a site stops working**, for example if the site blocks the bot or its page layout changes. One failed run (often just flaky Wi-Fi) is ignored; it warns only after 3 failed runs in a row.
 - **Scrapes politely.** It respects `robots.txt`, waits between requests, and never logs in, uses proxies or gets around blocks.
 

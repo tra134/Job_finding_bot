@@ -15,6 +15,8 @@ class Job:
     posted: str = ""         # display text, may be relative ("3 ngay truoc")
     deadline: Optional[date] = None
     level: str = ""          # e.g. VietnamWorks jobLevel
+    details: str = ""        # requirements/skills text when the source gives it (not stored)
+    experience: str = ""     # experience asked for, as the source shows it ("Dưới 1 năm", "2 years")
     sources: list = field(default_factory=list)   # all sources that listed it (after de-dup)
 
     def __post_init__(self):

@@ -1,7 +1,7 @@
 """Plain-text digest for --dry-run (Telegram formatting comes in a later milestone)."""
 from urllib.parse import quote
 
-from .filters import is_multi_city
+from .filters import is_multi_city, job_langs
 
 TIER_TITLES = {1: "📍 Da Nang", 2: "🏠 Remote", 3: "🏙️ Hanoi / HCMC / other cities"}
 OTHER_CAP = 10
@@ -22,6 +22,9 @@ def render_job(j):
     tag = " (multi-city)" if is_multi_city(j) else ""
     parts = [j.title, j.company, (j.location or "location unknown") + tag,
              j.salary or "salary n/a", "/".join(j.sources)]
+    langs = job_langs(j)
+    if langs:
+        parts.append("lang: " + ", ".join(langs))
     return " | ".join(parts) + "\n    " + j.url
 
 

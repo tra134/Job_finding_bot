@@ -21,7 +21,8 @@ def parse(html):
             company=text(c.select_one(".company-name")), url=url, source=NAME,
             salary=text(c.select_one(".title-salary")),
             location=text(c.select_one(".address, .city-text")),
-            posted=text(c.select_one(".label-update, .time"))))
+            posted=text(c.select_one(".label-update, .time")),
+            experience=text(c.select_one(".exp span, .exp"))))
     return jobs
 
 
@@ -46,5 +47,6 @@ def fetch(client):
     jobs = []
     for slug in ("thuc-tap", "intern"):
         jobs += _pages(client, f"https://www.topcv.vn/tim-viec-lam-{slug}-tai-da-nang-kl8", 3)
+    jobs += _pages(client, "https://www.topcv.vn/tim-viec-lam-tieng-nhat-tai-da-nang-kl8", 2)
     jobs += _pages(client, "https://www.topcv.vn/tim-viec-lam-intern", 2)
     return jobs

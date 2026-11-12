@@ -7,12 +7,11 @@ from pathlib import Path
 
 from . import contest_digest, contest_filters, digest, filters, state as st, telegram
 from .http_client import BlockedError, FetchError, HttpClient, RobotsDisallowed
-from .sources import (careerlink, careerviet, devpost, itviec, luma, mlh, topcv,
-                      vietnamworks)
+from .sources import careerviet, devpost, itviec, luma, mlh, topcv, vietnamworks
 
 JOB_SOURCES = {
     "vietnamworks": vietnamworks, "topcv": topcv, "itviec": itviec,
-    "careerviet": careerviet, "careerlink": careerlink,
+    "careerviet": careerviet,   # CareerLink removed: it serves a CAPTCHA to bots
 }
 
 CONTEST_SOURCES = {"luma": luma, "devpost": devpost, "mlh": mlh}
@@ -85,6 +84,15 @@ def boot_time():
     return None
 
 
+def slept_seconds():
+    """Total seconds suspended since boot (BOOTTIME counts sleep, MONOTONIC does not).
+    It grows each time the laptop sleeps, so a larger value means it woke up since."""
+    try:
+        return time.clock_gettime(time.CLOCK_BOOTTIME) - time.clock_gettime(time.CLOCK_MONOTONIC)
+    except (AttributeError, OSError):
+        return None
+
+
 def wait_for_network(check, sleep, total=NETWORK_WAIT, step=NETWORK_STEP):
     waited = 0
     while not check():
@@ -155,7 +163,8 @@ def run_channel(channel, names, client, state, sender, chat_id, today, seed, tie
     return has_data, send_ok
 
 
-def real_run(args, root, sender_factory, sleep, net_check, now, client_factory, booted_at):
+def real_run(args, root, sender_factory, sleep, net_check, now, client_factory, booted_at,
+             slept=slept_seconds):
     channels = [args.channel] if args.channel else ["jobs", "contests"]
     chat_ids, sender = {}, None
     env = load_env(root / ".env")
@@ -176,8 +185,10 @@ def real_run(args, root, sender_factory, sleep, net_check, now, client_factory, 
     try:
         with st.RunLock(root / "state" / "finder.lock"):
             state = st.State(root / "state" / "state.json")
-            if not (args.force or args.seed) and not state.scan_due(now(), 3, booted_at()):
-                print("Already scanned since boot and under 3 hours ago; skipping (use --force).")
+            if not (args.force or args.seed) and not state.scan_due(now(), 3, booted_at(),
+                                                                     slept()):
+                print("Already scanned since boot/wake and under 3 hours ago; "
+                      "skipping (use --force).")
                 return 0
             if not wait_for_network(net_check, sleep):
                 print("Network unavailable; giving up without updating the last scan.")
@@ -196,7 +207,7 @@ def real_run(args, root, sender_factory, sleep, net_check, now, client_factory, 
                 if not send_ok:
                     rc = 1
             if complete and rc == 0:
-                state.record_scan(now())
+                state.record_scan(now(), slept())
             return rc
     except st.LockHeld:
         print("Another run is in progress; exiting.")
@@ -209,7 +220,7 @@ def real_run(args, root, sender_factory, sleep, net_check, now, client_factory, 
 def main(argv=None, *, root=None, sender_factory=telegram.TelegramSender, sleep=time.sleep,
          net_check=telegram_reachable, now=lambda: datetime.now(timezone.utc),
          client_factory=lambda: HttpClient(approved_hosts=APPROVED_HOSTS),
-         booted_at=boot_time):
+         booted_at=boot_time, slept=slept_seconds):
     p = argparse.ArgumentParser(prog="finder")
     p.add_argument("--dry-run", action="store_true", help="print only; send nothing")
     p.add_argument("--channel", choices=["jobs", "contests"], default=None)
@@ -230,7 +241,7 @@ def main(argv=None, *, root=None, sender_factory=telegram.TelegramSender, sleep=
 
     if not args.dry_run:
         return real_run(args, Path(root or ROOT), sender_factory, sleep, net_check, now,
-                        client_factory, booted_at)
+                        client_factory, booted_at, slept)
     args.channel = args.channel or "jobs"
     registry = CONTEST_SOURCES if args.channel == "contests" else JOB_SOURCES
     names = args.names or list(registry)

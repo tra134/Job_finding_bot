@@ -23,10 +23,12 @@ def parse(html):
             if m not in locs:
                 locs.append(m)
         posted = re.search(r"Posted\s+(.+?ago)", body)
+        accepted = re.findall(r"(Internship|Fresher) Accepted", body)
         jobs.append(Job(
             title=text(a), company=(logo.get("title") if logo else "") or "",
             location=" - ".join(locs), url=(a.get("href") or "").split("?")[0],
-            source=NAME, posted=posted.group(1) if posted else ""))
+            source=NAME, posted=posted.group(1) if posted else "",
+            level="/".join(accepted)))
     return jobs
 
 
@@ -39,4 +41,6 @@ def fetch(client):
             jobs += found
             if len(found) < 20:
                 break
+    for path in ("japanese/da-nang", "brse/da-nang"):   # IT jobs that use Japanese
+        jobs += parse(client.get(f"https://itviec.com/it-jobs/{path}").text)
     return jobs

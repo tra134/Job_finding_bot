@@ -55,11 +55,12 @@ def env(tmp_path, monkeypatch):
                            state_path=tmp_path / "state" / "state.json")
 
 
-def run(env, *args, sender=None, net=lambda: True, sleep=lambda s: None, booted=None):
+def run(env, *args, sender=None, net=lambda: True, sleep=lambda s: None, booted=None,
+        slept=0.0):
     sender = sender or FakeSender()
     rc = fm.main(list(args), root=env.root, sender_factory=lambda token: sender, sleep=sleep,
                  net_check=net, now=lambda: NOW, client_factory=object,
-                 booted_at=lambda: booted)
+                 booted_at=lambda: booted, slept=lambda: slept)
     return rc, sender
 
 
@@ -364,3 +365,17 @@ def test_guard_applies_again_after_scan_since_boot(env):
 def test_boot_time_reads_proc_stat():
     b = fm.boot_time()
     assert b is None or (b.tzinfo is not None and b <= datetime.now(timezone.utc))
+
+
+def test_wake_from_sleep_triggers_scan(env):
+    init(env, "jobs", "contests")
+    state(env).record_scan(NOW - timedelta(hours=1), slept=100.0)
+    rc, sender = run(env, slept=100.0)              # no sleep since: skip
+    assert state(env).last_scan() == NOW - timedelta(hours=1)
+    rc, sender = run(env, slept=4000.0)             # slept an hour and woke: scan
+    assert state(env).last_scan() == NOW
+
+
+def test_slept_seconds_is_a_number():
+    v = fm.slept_seconds()
+    assert v is None or v >= 0

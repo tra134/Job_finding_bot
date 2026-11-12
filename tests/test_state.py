@@ -161,3 +161,14 @@ def test_scan_due_after_reboot(tmp_path):
     assert s.scan_due(now, booted_at=now - timedelta(minutes=5))      # last scan before boot
     assert not s.scan_due(now, booted_at=now - timedelta(hours=2))    # already scanned this boot
     assert not s.scan_due(now, booted_at=None)
+
+
+def test_scan_due_after_wake(tmp_path):
+    s = State(tmp_path / "state.json")
+    now = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
+    s.record_scan(now - timedelta(hours=1), slept=100.0)
+    assert not s.scan_due(now, slept=100.0)                       # no sleep since last scan
+    assert not s.scan_due(now, slept=130.0)                       # under the slack
+    assert s.scan_due(now, slept=2000.0)                          # slept and woke
+    assert not s.scan_due(now - timedelta(minutes=40), slept=2000.0)   # last scan < 30 min old
+    assert not s.scan_due(now, slept=None)

@@ -3,7 +3,9 @@ Description=Run the Da Nang intern and contest finder
 
 [Timer]
 OnStartupSec=1min
-OnCalendar=hourly
+# Check every 15 min; the bot itself scans only after boot, after waking from
+# sleep (if the last scan is 30+ min old) or every 3 hours. Other checks exit at once.
+OnCalendar=*:0/15
 Persistent=true
 
 [Install]

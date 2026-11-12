@@ -12,6 +12,8 @@ from finder.models import Contest
 EMPTY_THRESHOLD = 3
 FAIL_THRESHOLD = 3   # consecutive blocked/error runs before warning (flaky Wi-Fi is common)
 CHANNELS = ("jobs", "contests")
+NAP_MINUTES = 30      # after waking from sleep, rescan if the last scan is this old
+WAKE_SLACK = 60       # seconds of extra suspended time that count as a real sleep
 
 
 class StateError(Exception):
@@ -110,18 +112,26 @@ class State:
             raise StateError("bad last_scan value") from None
         return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
 
-    def record_scan(self, when):
+    def record_scan(self, when, slept=None):
+        """slept: seconds this machine has been suspended since boot (see main.slept_seconds)."""
         if when.tzinfo is None:
             when = when.replace(tzinfo=timezone.utc)
         self.data["last_scan"] = when.astimezone(timezone.utc).isoformat()
+        self.data["last_scan_slept"] = slept
         self._save()
 
-    def scan_due(self, now, min_hours=3, booted_at=None):
-        """Due if never scanned, not yet scanned since this boot, or min_hours have passed."""
+    def scan_due(self, now, min_hours=3, booted_at=None, slept=None):
+        """Due if never scanned, not yet scanned since this boot, woken from sleep since
+        the last scan (and that scan is at least NAP_MINUTES old), or min_hours have passed."""
         last = self.last_scan()
         if last is None or (booted_at is not None and last < booted_at):
             return True
-        return now - last >= timedelta(hours=min_hours)
+        if now - last >= timedelta(hours=min_hours):
+            return True
+        before = self.data.get("last_scan_slept")
+        woke = (slept is not None and isinstance(before, (int, float))
+                and slept > before + WAKE_SLACK)
+        return woke and now - last >= timedelta(minutes=NAP_MINUTES)
 
     def update_source(self, name, status):
         if status == "skipped":

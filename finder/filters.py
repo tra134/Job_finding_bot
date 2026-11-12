@@ -30,7 +30,7 @@ TECH = _rx([
     r"sre", r"qa", r"qc", r"testers?", r"automation test", r"data engineers?",
     r"data analysts?", r"data scientists?", r"ai", r"machine learning", r"ml", r"embedded",
     r"iot", r"cyber ?security", r"lap trinh", r"phat trien phan mem", r"kiem thu",
-    r"cong nghe thong tin",
+    r"cong nghe thong tin", r"it", r"cntt", r"business analysts?", r"tu dong hoa",
 ])
 ENGINEER = re.compile(r"(?<![\w])engineers?(?![\w])")
 ENGINEER_CONTEXT = _rx([
@@ -41,15 +41,87 @@ ENGINEER_CONTEXT = _rx([
 
 NON_TECH = _rx([
     r"sales", r"business development", r"recruiters?", r"recruitment", r"hr", r"nhan su",
-    r"marketing", r"content", r"kinh doanh", r"ke toan", r"accounting",
+    r"marketing", r"content", r"kinh doanh", r"ke toan", r"accounting", r"ban hang",
+    r"giao vien", r"gia su", r"tro giang", r"teachers?", r"tutors?",
 ])
-SENIOR = _rx([r"senior", r"manager", r"lead", r"management trainee", r"fast track",
-              r"general manager"])
+SENIOR = _rx([r"senior", r"manager", r"lead", r"leaders?", r"head of", r"management trainee",
+              r"fast track", r"general manager"])
+# IT roles whose core skill is a language (mostly Japanese outsourcing in Da Nang).
+LANG_IT_ROLE = _rx([r"brse", r"bridge (?:system |software )?engineers?", r"ky su cau noi",
+                    r"it comtor", r"comtor it", r"phien dich it", r"bien dich it",
+                    r"it interpreter", r"it translator"])
 LABOUR_EXPORT = [re.compile(p) for p in [
     r"(di|sang|tai|lam viec tai) (nhat ban|nhat|han quoc|dai loan|duc)",
     r"thuc tap sinh (ky nang )?(nhat ban|han quoc|dai loan|duc)",
     r"xuat khau lao dong", r"\bxkld\b", r"ky thuat sinh",
 ]]
+
+# Entry-level markers for non-intern postings (fresher roles asking for a language).
+ENTRY = _rx([r"fresher", r"entry level", r"moi tot nghiep", r"no experience",
+             r"khong (?:can|yeu cau) kinh nghiem", r"chua co kinh nghiem"])
+
+# Language skills: (label, pattern). Japanese also reports the JLPT level (N1-N5).
+LANGS = [
+    ("Japanese", _rx([r"tieng nhat", r"japanese", r"jlpt", r"n[1-5]", r"brse",
+                      r"bridge (?:system |software )?engineers?", r"comtor", r"nihongo"])),
+    ("English", _rx([r"tieng anh", r"english", r"ielts", r"toeic", r"toefl"])),
+    ("Korean", _rx([r"tieng han", r"korean", r"topik"])),
+    ("Chinese", _rx([r"tieng trung", r"chinese", r"mandarin", r"hsk"])),
+]
+JLPT = re.compile(r"(?<![\w])n([1-5])(?![\w])")
+FLUENT = re.compile(r"fluent|fluency|thanh thao|thong thao|luu loat|business level")
+
+
+def detect_langs(text):
+    """'... tieng Nhat N3 ... English fluent' -> ['Japanese N3', 'English (fluent)']."""
+    t = fold(text)
+    out = []
+    for name, rx in LANGS:
+        m = rx.search(t)
+        if not m:
+            continue
+        if name == "Japanese":
+            levels = sorted(set(JLPT.findall(t)))
+            if levels:   # N5 is the easiest; the largest number is the minimum asked for
+                name += f" N{levels[-1]}"
+        elif name == "English":
+            near = t[max(0, m.start() - 60):m.end() + 60]
+            if FLUENT.search(near):
+                name += " (fluent)"
+        out.append(name)
+    return out
+
+
+def job_langs(job: Job):
+    return detect_langs(f"{job.title} {job.details}")
+
+
+YEARS = re.compile(r"(\d+)(?:\s*-\s*\d+)?\s*(?:\+\s*)?(?:nam|years?)")
+NO_EXPERIENCE = _rx([r"khong yeu cau", r"duoi 1 nam", r"no experience", r"chua co kinh nghiem",
+                     r"khong can kinh nghiem"])
+
+
+def years_required(job: Job):
+    """Minimum years of experience asked for; 0 for none/under 1 year; None if unknown."""
+    exp = fold(job.experience)
+    if not exp:
+        return None
+    if NO_EXPERIENCE.search(exp):
+        return 0
+    m = YEARS.search(exp)
+    return int(m.group(1)) if m else None
+
+
+def is_entry_level(job: Job) -> bool:
+    """Intern, fresher, or under 1 year of experience. A stated 1+ years wins
+    over a 'fresher' label (some posts say 'Fresher/Entry level' but want 2 years)."""
+    if is_internship(job):
+        return True
+    years = years_required(job)
+    if years is not None:
+        return years < 1
+    return bool(ENTRY.search(fold(f"{job.title} {job.level}")))
+
 
 DANANG = re.compile(r"\bda nang\b")
 REMOTE = re.compile(r"\bremote\b|lam viec tu xa|work from home|\bwfh\b")
@@ -111,8 +183,29 @@ def is_multi_city(job: Job) -> bool:
     return bool(DANANG.search(loc) and (OTHER_CITIES.search(loc) or re.search(r"[,&;]| - ", loc)))
 
 
+def wanted(job: Job) -> bool:
+    """Tech internships, plus IT jobs that use a language (mainly Japanese):
+    All of these must be entry level: intern, fresher, or under 1 year of experience.
+    - a bridge role in the title (BrSE, IT comtor...);
+    - a tech title that names a language, e.g. 'Java Developer (Japanese N2)';
+    - a tech job whose requirements ask for a language (English
+      only when fluent: plain English is in almost every posting).
+    General language jobs ('Nhan vien tieng Nhat') are not IT and are not wanted."""
+    title = fold(job.title)
+    if is_internship(job) and is_technical(job.title):
+        return True
+    if not is_entry_level(job):
+        return False
+    if LANG_IT_ROLE.search(title):
+        return True
+    if is_technical(job.title) and detect_langs(job.title):
+        return True
+    asked = [l for l in detect_langs(job.details) if l != "English"]
+    return is_technical(job.title) and bool(asked)
+
+
 def accept(job: Job, today: date) -> bool:
-    return (is_internship(job) and is_technical(job.title) and not is_excluded(job)
+    return (wanted(job) and not is_excluded(job)
             and not is_expired(job, today) and safe_url(job.url))
 
 

@@ -7,7 +7,7 @@ import requests
 
 from . import contest_digest, digest
 from .contest_filters import MODE_LABEL, is_global
-from .filters import is_multi_city, safe_url
+from .filters import is_multi_city, job_langs, safe_url
 
 API = "https://api.telegram.org/bot{}/sendMessage"
 LIMIT = 4000
@@ -47,8 +47,10 @@ def _footer(links):
 
 def _job(j):
     tag = " (multi-city)" if is_multi_city(j) else ""
+    langs = job_langs(j)
+    lang = f"🗣 {esc(', '.join(langs))}\n" if langs else ""
     return (f"<b>{esc(j.title)}</b>\n{esc(j.company)} | {esc((j.location or 'location unknown') + tag)}\n"
-            f"{esc(j.salary or 'salary n/a')} | {esc('/'.join(j.sources))}\n{_link('Open', j.url)}")
+            f"{esc(j.salary or 'salary n/a')} | {esc('/'.join(j.sources))}\n{lang}{_link('Open', j.url)}")
 
 
 def _contest(c):

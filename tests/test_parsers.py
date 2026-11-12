@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from finder.sources import careerlink, careerviet, itviec, topcv, vietnamworks
+from finder.sources import careerviet, itviec, topcv, vietnamworks
 
 F = Path(__file__).parent / "fixtures"
 
@@ -59,15 +59,6 @@ def test_careerviet_maps_time_to_deadline():
     assert jobs[0].posted == ""
 
 
-def test_careerlink_separates_location_and_salary():
-    jobs = careerlink.parse(need("careerlink.html"))
-    basic(jobs)
-    for j in jobs:
-        assert "Cập nhật" not in j.location
-        assert "Thực tập" not in j.salary and "Sinh viên" not in j.salary
-    assert any("Thực tập" in j.level or "Sinh viên" in j.level for j in jobs)
-
-
 class _VWClient:
     """Fails the first search request, answers the rest with one posting."""
     def __init__(self, fail_all=False, blocked=False):
@@ -96,3 +87,13 @@ def test_vietnamworks_raises_when_every_search_fails():
         vietnamworks.fetch(_VWClient(fail_all=True))
     with pytest.raises(BlockedError):
         vietnamworks.fetch(_VWClient(blocked=True))
+
+
+def test_vietnamworks_details_from_requirements_and_skills():
+    data = {"data": [{"jobTitle": "Fresher Java", "jobUrl": "https://www.vietnamworks.com/x",
+                      "approvedOn": "2026-11-01", "jobRequirement": "<p>Tiếng Nhật N3 &amp; Java</p>",
+                      "skills": [{"skillName": "English"}]}]}
+    data["data"][0]["yearsOfExperience"] = 0
+    j = vietnamworks.parse(data)[0]
+    assert "Tiếng Nhật N3 & Java" in j.details and "English" in j.details
+    assert j.experience == "no experience"
