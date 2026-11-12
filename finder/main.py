@@ -88,7 +88,10 @@ def slept_seconds():
     """Total seconds suspended since boot (BOOTTIME counts sleep, MONOTONIC does not).
     It grows each time the laptop sleeps, so a larger value means it woke up since."""
     try:
-        return time.clock_gettime(time.CLOCK_BOOTTIME) - time.clock_gettime(time.CLOCK_MONOTONIC)
+        # The two reads are not simultaneous; clamp the tiny negative jitter seen on
+        # machines that never slept.
+        return max(0.0, time.clock_gettime(time.CLOCK_BOOTTIME)
+                   - time.clock_gettime(time.CLOCK_MONOTONIC))
     except (AttributeError, OSError):
         return None
 
