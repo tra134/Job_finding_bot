@@ -10,6 +10,7 @@ from finder.filters import fold
 from finder.models import Contest
 
 EMPTY_THRESHOLD = 3
+FAIL_THRESHOLD = 3   # consecutive blocked/error runs before warning (flaky Wi-Fi is common)
 CHANNELS = ("jobs", "contests")
 
 
@@ -127,15 +128,19 @@ class State:
             return False
         s = self.data["sources"].setdefault(
             name, {"failing": False, "warned": False, "empties": 0})
+        s.setdefault("fails", 0)
         if status == "ok":
-            s.update(failing=False, warned=False, empties=0)
+            s.update(failing=False, warned=False, empties=0, fails=0)
         elif status == "empty":
+            s["fails"] = 0
             s["empties"] += 1
             if s["empties"] >= EMPTY_THRESHOLD:
                 s["failing"] = True
         elif status in ("blocked", "error"):
             s["empties"] = 0
-            s["failing"] = True
+            s["fails"] += 1
+            if s["fails"] >= FAIL_THRESHOLD:
+                s["failing"] = True
         else:
             return False
         self._save()

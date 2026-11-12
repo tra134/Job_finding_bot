@@ -1,3 +1,4 @@
+from ..http_client import BlockedError, FetchError
 from ..models import Job
 from .common import parse_iso
 
@@ -33,8 +34,19 @@ def _search(client, query, city, max_pages):
     return jobs
 
 
+SEARCHES = [("", DA_NANG_CITY, 4), ("intern", None, 2), ("thuc tap", None, 2)]
+
+
 def fetch(client):
-    jobs = _search(client, "", DA_NANG_CITY, 4)
-    jobs += _search(client, "intern", None, 2)
-    jobs += _search(client, "thuc tap", None, 2)
+    """Run every search; one timed-out search should not throw away the others."""
+    jobs, errors = [], []
+    for query, city, pages in SEARCHES:
+        try:
+            jobs += _search(client, query, city, pages)
+        except BlockedError:
+            raise                      # host refused us: stop, report as blocked
+        except FetchError as e:
+            errors.append(e)
+    if errors and not jobs:
+        raise errors[0]
     return jobs

@@ -66,3 +66,33 @@ def test_careerlink_separates_location_and_salary():
         assert "Cập nhật" not in j.location
         assert "Thực tập" not in j.salary and "Sinh viên" not in j.salary
     assert any("Thực tập" in j.level or "Sinh viên" in j.level for j in jobs)
+
+
+class _VWClient:
+    """Fails the first search request, answers the rest with one posting."""
+    def __init__(self, fail_all=False, blocked=False):
+        self.calls, self.fail_all, self.blocked = 0, fail_all, blocked
+
+    def post_json(self, url, payload):
+        from finder.http_client import BlockedError, FetchError
+        self.calls += 1
+        if self.blocked:
+            raise BlockedError("403")
+        if self.fail_all or self.calls == 1:
+            raise FetchError("timeout")
+        hit = {"jobTitle": f"Intern {payload['query']}", "companyName": "Co",
+               "jobUrl": "https://www.vietnamworks.com/x", "approvedOn": "2026-11-01"}
+        return type("R", (), {"json": lambda self: {"data": [hit], "meta": {"nbPages": 1}}})()
+
+
+def test_vietnamworks_keeps_results_when_one_search_fails():
+    jobs = vietnamworks.fetch(_VWClient())
+    assert [j.title for j in jobs] == ["Intern intern", "Intern thuc tap"]
+
+
+def test_vietnamworks_raises_when_every_search_fails():
+    from finder.http_client import BlockedError, FetchError
+    with pytest.raises(FetchError):
+        vietnamworks.fetch(_VWClient(fail_all=True))
+    with pytest.raises(BlockedError):
+        vietnamworks.fetch(_VWClient(blocked=True))

@@ -99,13 +99,25 @@ def test_scan_due(tmp_path):
 def test_source_health_blocked_cycle(tmp_path):
     s = State(tmp_path / "state.json")
     assert s.update_source("a", "ok") is False
-    assert s.update_source("a", "blocked") is True
-    assert s.update_source("a", "blocked") is True
+    assert s.update_source("a", "blocked") is False
+    assert s.update_source("a", "error") is False
+    assert s.update_source("a", "blocked") is True     # third failure in a row
+    assert s.update_source("a", "blocked") is True     # until a warning is sent
     s.mark_warned("a")
     assert s.update_source("a", "blocked") is False
     assert State(tmp_path / "state.json").update_source("a", "error") is False
     assert s.update_source("a", "ok") is False
+    assert s.update_source("a", "error") is False
+    assert s.update_source("a", "error") is False
     assert s.update_source("a", "error") is True
+
+
+def test_one_off_failures_between_successes_never_warn(tmp_path):
+    s = State(tmp_path / "state.json")
+    for _ in range(5):
+        assert s.update_source("a", "error") is False
+        assert s.update_source("a", "error") is False
+        assert s.update_source("a", "ok") is False
 
 
 def test_source_health_empty_threshold_and_skipped(tmp_path):

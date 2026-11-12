@@ -6,7 +6,7 @@ import pytest
 
 from finder import contest_filters as cf
 from finder.models import Contest
-from finder.sources import devpost, mlh
+from finder.sources import devpost, luma, mlh
 
 TODAY = date(2026, 11, 9)
 F = Path(__file__).parent / "fixtures" / "contests"
@@ -19,9 +19,23 @@ def c(name="AI Hackathon", mode="online", topic="AI", **kw):
     return Contest(**d)
 
 
-def test_online_topic_matched_accepted_and_global_flag():
+def test_global_online_rejected_even_with_topic():
     x = c()
-    assert cf.accept(x, TODAY) and cf.is_global(x)
+    assert cf.is_global(x) and not cf.accept(x, TODAY)
+
+
+def test_vietnam_online_with_topic_accepted():
+    assert cf.accept(c(vietnam_open=True), TODAY)
+    assert not cf.accept(c(vietnam_open=True, topic=""), TODAY)
+
+
+def test_hanoi_hcmc_need_topic():
+    assert cf.accept(c(mode="vietnam", topic="Fintech"), TODAY)
+    assert not cf.accept(c(mode="vietnam", topic=""), TODAY)
+
+
+def test_non_contest_event_rejected():
+    assert not cf.accept(c(mode="da nang", is_contest=False), TODAY)
 
 
 def test_online_without_topic_rejected():
@@ -55,6 +69,8 @@ def test_classify_mode():
     assert cf.classify_mode("Da Nang, Vietnam", False) == "da nang"
     assert cf.classify_mode("Atlanta, GA", False) == "other"
     assert cf.classify_mode("Atlanta, GA", True) == "online"
+    assert cf.classify_mode("Thanh Xuân, Hà Nội, Vietnam", False) == "vietnam"
+    assert cf.classify_mode("Thành phố Hồ Chí Minh, Vietnam", False) == "vietnam"
 
 
 @pytest.mark.parametrize("name,topic", [
@@ -71,8 +87,32 @@ def test_devpost_theme_mapping():
 
 
 def test_select_dedups_and_sorts_da_nang_first():
-    out = cf.select([c("A"), c("A"), c("B", mode="da nang")], TODAY)
-    assert [x.name for x in out] == ["B", "A"]
+    out = cf.select([c("A", vietnam_open=True), c("A", vietnam_open=True),
+                     c("C", mode="vietnam"), c("B", mode="da nang")], TODAY)
+    assert [x.name for x in out] == ["B", "C", "A"]
+
+
+def test_luma_parse_keeps_all_events_and_flags_contests():
+    data = {"entries": [
+        {"calendar": {"name": "Codex"}, "event": {
+            "name": "Codex Community Hackathon - Hanoi", "url": "l0ro71hq",
+            "location_type": "offline", "start_at": "2026-11-14T02:00:00.000Z",
+            "end_at": "2026-11-14T12:00:00.000Z",
+            "geo_address_info": {"region": "Hà Nội", "country": "Vietnam",
+                                 "full_address": "79 Ngụy Như Kon Tum, Thanh Xuân, Hà Nội"}}},
+        {"calendar": {"name": "FES"}, "event": {
+            "name": "ĐÀ NẴNG | Vòng Bán Kết FPT Tích Tịch Tình Tang 2026", "url": "f6nae1v7",
+            "location_type": "offline", "start_at": "2026-11-29T01:00:00.000Z",
+            "geo_address_info": {"region": "Đà Nẵng", "full_address": "Ngũ Hành Sơn, Đà Nẵng"}}},
+        {"event": {"name": "Sake Mahjong Night", "url": "a1swbrsj", "location_type": "offline",
+                   "geo_address_info": {"region": "Hồ Chí Minh"}}},
+        {"event": {"name": "No link Hackathon"}},
+    ]}
+    items = luma.parse(data)
+    assert [(i.mode, i.topic, i.is_contest) for i in items] == [
+        ("vietnam", "AI", True), ("da nang", "", True), ("vietnam", "", False)]
+    assert items[0].url == "https://luma.com/l0ro71hq" and items[0].ended == date(2026, 11, 14)
+    assert [i.name for i in cf.select(items, TODAY)] == [items[1].name, items[0].name]
 
 
 @pytest.mark.parametrize("text,end", [
@@ -111,7 +151,7 @@ def test_mlh_synthetic_digital_and_physical():
     html = f'<script data-page="app" type="application/json">{json.dumps(page)}</script>'
     items = mlh.parse(html)
     assert [i.mode for i in items] == ["online", "other"]
-    assert cf.select(items, TODAY)[0].name == "Cloud Hack"
+    assert cf.select(items, TODAY) == []     # global online and abroad: both dropped
 
 
 def test_mlh_fixture():

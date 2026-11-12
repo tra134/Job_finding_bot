@@ -19,7 +19,7 @@ def job(i, title=None):
 
 
 def contest(i):
-    return Contest(name=f"AI Hackathon {i}", organiser=f"Org{i}", mode="online", location="Online",
+    return Contest(name=f"AI Hackathon {i}", organiser=f"Org{i}", mode="da nang", location="Da Nang",
                    url=f"https://c.example/{i}", source="fakec", topic="AI")
 
 
@@ -276,6 +276,9 @@ def test_source_warning_sent_once_to_its_channel(env):
     init(env, "jobs", "contests")
     state(env).mark_seen("contests", [st.item_key(contest(1))])
     env.jobs.exc = BlockedError("HTTP 403")
+    for _ in range(st.FAIL_THRESHOLD - 1):      # a one-off failure stays quiet
+        rc, sender = run(env, "--force")
+        assert sender.sent == []
     rc, sender = run(env, "--force")
     assert rc == 0 or rc == 1
     assert len(sender.sent) == 1 and sender.sent[0][0] == "-1"
@@ -288,7 +291,9 @@ def test_failed_warning_is_retried(env):
     init(env, "jobs", "contests")
     state(env).mark_seen("contests", [st.item_key(contest(1))])
     env.jobs.exc = BlockedError("HTTP 403")
-    rc, sender = run(env, sender=FakeSender(fail_from=0))
+    for _ in range(st.FAIL_THRESHOLD - 1):
+        run(env, "--force")
+    rc, sender = run(env, "--force", sender=FakeSender(fail_from=0))
     assert rc == 1
     rc, sender = run(env, "--force")
     assert len(sender.sent) == 1 and sender.sent[0][0] == "-1"

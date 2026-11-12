@@ -1,6 +1,6 @@
 from urllib.parse import quote
 
-from .contest_filters import is_global
+from .contest_filters import MODE_LABEL, is_global
 
 
 def search_links():
@@ -9,7 +9,7 @@ def search_links():
 
 def render_contest(c):
     flag = "🌍 " if is_global(c) else ""
-    fmt = "Da Nang" if c.mode == "da nang" else "online"
+    fmt = MODE_LABEL.get(c.mode, c.mode)
     return (f"{flag}{c.name} | {c.organiser or 'organiser unknown'} | {fmt} | "
             f"topic: {c.topic or 'unknown'} | deadline (end of submission period): "
             f"{c.reg_deadline.isoformat() if c.reg_deadline else 'unknown'} | "

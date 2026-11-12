@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 import requests
 
 from . import contest_digest, digest
-from .contest_filters import is_global
+from .contest_filters import MODE_LABEL, is_global
 from .filters import is_multi_city, safe_url
 
 API = "https://api.telegram.org/bot{}/sendMessage"
@@ -53,7 +53,7 @@ def _job(j):
 
 def _contest(c):
     flag = "🌍 " if is_global(c) else ""
-    fmt = "Da Nang" if c.mode == "da nang" else "online"
+    fmt = MODE_LABEL.get(c.mode, c.mode)
     deadline = c.reg_deadline.isoformat() if c.reg_deadline else "unknown"
     return (f"{flag}<b>{esc(c.name)}</b>\n{esc(c.organiser or 'organiser unknown')} | {fmt} | "
             f"topic: {esc(c.topic or 'unknown')}\n"

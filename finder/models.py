@@ -26,7 +26,7 @@ class Job:
 class Contest:
     name: str
     organiser: str
-    mode: str                # "da nang" | "online" | "other" (in person elsewhere)
+    mode: str                # "da nang" | "vietnam" (Hanoi/HCMC) | "online" | "other"
     location: str
     url: str
     source: str
@@ -36,3 +36,4 @@ class Contest:
     ended: Optional[date] = None      # last day, used to drop finished events
     vietnam_open: bool = False        # text mentions Vietnam explicitly
     closed: bool = False
+    is_contest: bool = True           # False for plain meetups from general event feeds

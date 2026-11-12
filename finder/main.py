@@ -7,14 +7,15 @@ from pathlib import Path
 
 from . import contest_digest, contest_filters, digest, filters, state as st, telegram
 from .http_client import BlockedError, FetchError, HttpClient, RobotsDisallowed
-from .sources import (careerlink, careerviet, devpost, itviec, mlh, topcv, vietnamworks)
+from .sources import (careerlink, careerviet, devpost, itviec, luma, mlh, topcv,
+                      vietnamworks)
 
 JOB_SOURCES = {
     "vietnamworks": vietnamworks, "topcv": topcv, "itviec": itviec,
     "careerviet": careerviet, "careerlink": careerlink,
 }
 
-CONTEST_SOURCES = {"devpost": devpost, "mlh": mlh}
+CONTEST_SOURCES = {"luma": luma, "devpost": devpost, "mlh": mlh}
 APPROVED_HOSTS = {"mlh.io", "www.mlh.com", "mlh.com", "devpost.com"}
 
 ROOT = Path(__file__).resolve().parent.parent
